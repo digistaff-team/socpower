@@ -1,59 +1,25 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Loader2 } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import { CreateTicketDTO, TicketPriority } from '../types';
-import { analyzeTicket } from '../services/geminiService';
 
 interface NewTicketModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (dto: CreateTicketDTO, analysis?: any) => Promise<void>;
+  onSubmit: (dto: CreateTicketDTO) => Promise<void>;
   userId: string;
 }
 
 const NewTicketModal: React.FC<NewTicketModalProps> = ({ isOpen, onClose, onSubmit, userId }) => {
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [suggestedCategory, setSuggestedCategory] = useState<string | null>(null);
-  const [suggestedPriority, setSuggestedPriority] = useState<TicketPriority | null>(null);
-  const [analysisData, setAnalysisData] = useState<any>(null);
-
-  const handleAnalyze = async () => {
-    if (!subject || !description) return;
-    setIsAnalyzing(true);
-    try {
-      const result = await analyzeTicket(subject, description);
-      setSuggestedCategory(result.category);
-      setSuggestedPriority(result.priority);
-      setAnalysisData(result);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
+  const [category, setCategory] = useState('Общее');
+  const [priority, setPriority] = useState<TicketPriority>(TicketPriority.MEDIUM);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     
-    // If user hasn't analyzed, we do a quick background analysis or just submit defaults
-    let finalAnalysis = analysisData;
-    let category = suggestedCategory || 'Общее';
-    let priority = suggestedPriority || TicketPriority.MEDIUM;
-
-    if (!finalAnalysis && subject && description) {
-        // Quick analysis on submit if they skipped the button
-        try {
-           finalAnalysis = await analyzeTicket(subject, description);
-           category = finalAnalysis.category;
-           priority = finalAnalysis.priority;
-        } catch(e) {
-            console.warn("Background analysis failed", e);
-        }
-    }
-
     const dto: CreateTicketDTO = {
       subject,
       description,
@@ -62,7 +28,7 @@ const NewTicketModal: React.FC<NewTicketModalProps> = ({ isOpen, onClose, onSubm
       priority
     };
 
-    await onSubmit(dto, finalAnalysis);
+    await onSubmit(dto);
     setIsSubmitting(false);
     resetForm();
     onClose();
@@ -71,9 +37,8 @@ const NewTicketModal: React.FC<NewTicketModalProps> = ({ isOpen, onClose, onSubm
   const resetForm = () => {
       setSubject('');
       setDescription('');
-      setSuggestedCategory(null);
-      setSuggestedPriority(null);
-      setAnalysisData(null);
+      setCategory('Общее');
+      setPriority(TicketPriority.MEDIUM);
   }
 
   if (!isOpen) return null;
@@ -103,6 +68,36 @@ const NewTicketModal: React.FC<NewTicketModalProps> = ({ isOpen, onClose, onSubm
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                    <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">Категория</label>
+                    <select
+                        id="category"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                        value={category}
+                        onChange={(e) => setCategory(e.target.value)}
+                    >
+                        <option value="Общее">Общее</option>
+                        <option value="Технический">Технический</option>
+                        <option value="Биллинг">Биллинг</option>
+                        <option value="API">API</option>
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="priority" className="block text-sm font-medium text-gray-700 mb-1">Приоритет</label>
+                    <select
+                        id="priority"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                        value={priority}
+                        onChange={(e) => setPriority(e.target.value as TicketPriority)}
+                    >
+                         {Object.values(TicketPriority).map((p) => (
+                             <option key={p} value={p}>{p}</option>
+                         ))}
+                    </select>
+                </div>
+            </div>
+
             <div>
               <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">Описание проблемы</label>
               <textarea
@@ -115,49 +110,6 @@ const NewTicketModal: React.FC<NewTicketModalProps> = ({ isOpen, onClose, onSubm
                 onChange={(e) => setDescription(e.target.value)}
               />
             </div>
-
-            {/* AI Assistant Section */}
-            <div className="bg-indigo-50 rounded-lg p-4 border border-indigo-100">
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex items-center gap-2 text-indigo-900 font-medium text-sm">
-                  <Sparkles size={16} className="text-indigo-600" />
-                  Ассистент Gemini
-                </div>
-                {!suggestedCategory && (
-                  <button
-                    type="button"
-                    onClick={handleAnalyze}
-                    disabled={!subject || !description || isAnalyzing}
-                    className="text-xs bg-white border border-indigo-200 text-indigo-700 px-3 py-1 rounded-full hover:bg-indigo-100 disabled:opacity-50 transition-colors"
-                  >
-                    {isAnalyzing ? 'Анализ...' : 'Авто-анализ'}
-                  </button>
-                )}
-              </div>
-              
-              {isAnalyzing && (
-                  <div className="flex items-center gap-2 text-xs text-indigo-600 animate-pulse mt-2">
-                      <Loader2 size={12} className="animate-spin"/> Читаю детали...
-                  </div>
-              )}
-
-              {suggestedCategory && !isAnalyzing && (
-                <div className="space-y-2 mt-2">
-                    <div className="flex gap-2">
-                        <span className="text-xs bg-indigo-200 text-indigo-800 px-2 py-1 rounded">
-                            Кат: {suggestedCategory}
-                        </span>
-                        <span className={`text-xs px-2 py-1 rounded border ${suggestedPriority === 'CRITICAL' || suggestedPriority === 'HIGH' ? 'bg-red-50 border-red-200 text-red-700' : 'bg-white border-gray-200 text-gray-600'}`}>
-                            Приоритет: {suggestedPriority}
-                        </span>
-                    </div>
-                    {analysisData?.summary && (
-                        <p className="text-xs text-indigo-700 italic">"{analysisData.summary}"</p>
-                    )}
-                </div>
-              )}
-            </div>
-
           </form>
         </div>
 

@@ -1,5 +1,5 @@
 {
-  "name": "Copy of SocPower Поддержка",
-  "description": "Умная система тикетов для SocPower.ru с интеграцией Gemini AI для автокатегоризации и умных ответов.",
+  "name": "SocPower Support",
+  "description": "Система тикетов для SocPower.ru с интеграцией Pro-Talk Bot.",
   "requestFramePermissions": []
 }

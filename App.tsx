@@ -1,82 +1,145 @@
 import React, { useState, useEffect } from 'react';
-import { db } from './services/mockDatabase';
-import { Ticket, User, UserRole, TicketStatus, CreateTicketDTO } from './types';
+import { Ticket, User, UserRole, TicketStatus, CreateTicketDTO, TicketPriority, Message } from './types';
 import TicketList from './components/TicketList';
 import TicketDetail from './components/TicketDetail';
 import NewTicketModal from './components/NewTicketModal';
 import { LayoutDashboard, Ticket as TicketIcon, LogOut, Plus, Search, Filter } from 'lucide-react';
 
+// Seed Data (moved from mockDatabase)
+const INITIAL_USERS: User[] = [
+  {
+    id: 'u-1',
+    name: 'Алексей Клиент',
+    email: 'alex@example.com',
+    role: UserRole.USER,
+    avatarUrl: 'https://picsum.photos/100/100?random=1'
+  },
+  {
+    id: 'a-1',
+    name: 'Агент поддержки Мария',
+    email: 'support@socpower.ru',
+    role: UserRole.ADMIN,
+    avatarUrl: 'https://picsum.photos/100/100?random=2'
+  }
+];
+
+const INITIAL_TICKETS: Ticket[] = [
+  {
+    id: 't-101',
+    userId: 'u-1',
+    subject: 'Превышен лимит API запросов',
+    description: 'Я постоянно получаю ошибку 429 при использовании эндпоинта авто-лайкинга в Instagram.',
+    status: TicketStatus.OPEN,
+    priority: TicketPriority.HIGH,
+    category: 'API Интеграция',
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    updatedAt: new Date(Date.now() - 86400000).toISOString()
+  }
+];
+
+const INITIAL_MESSAGES: Message[] = [
+  {
+    id: 'm-1',
+    ticketId: 't-101',
+    senderId: 'u-1',
+    content: 'Я постоянно получаю ошибку 429 при использовании эндпоинта авто-лайкинга. Можете увеличить мои лимиты?',
+    createdAt: new Date(Date.now() - 86400000).toISOString()
+  }
+];
+
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  
+  // Internal State
+  const [users] = useState<User[]>(INITIAL_USERS);
+  const [tickets, setTickets] = useState<Ticket[]>(INITIAL_TICKETS);
+  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
-  const [isLoading, setIsLoading] = useState(true);
 
-  // Initial Load - Simulate Auth
   useEffect(() => {
-    const init = async () => {
-      // Simulate logging in as Admin by default for demo purposes, 
-      // but in a real app this would be an auth flow.
-      // Let's toggle between User/Admin via UI later.
-      const users = await db.getAllUsers();
-      setCurrentUser(users[0]); // Default to 'Alex Client'
-    };
-    init();
-  }, []);
+    // Simulate auth check
+    setCurrentUser(users[0]);
+  }, [users]);
 
-  // Load tickets when user changes
-  useEffect(() => {
-    if (currentUser) {
-      loadTickets();
-      setSelectedTicket(null);
-    }
-  }, [currentUser]);
+  const selectedTicket = tickets.find(t => t.id === selectedTicketId) || null;
+  const selectedTicketMessages = messages.filter(m => m.ticketId === selectedTicketId).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-  const loadTickets = async () => {
+  const handleCreateTicket = async (dto: CreateTicketDTO) => {
     if (!currentUser) return;
-    setIsLoading(true);
-    const data = await db.getTickets(currentUser.role, currentUser.id);
-    setTickets(data);
-    setIsLoading(false);
-  };
-
-  const handleCreateTicket = async (dto: CreateTicketDTO, analysis: any) => {
-    if (!currentUser) return;
-    const newTicket = await db.createTicket(dto);
     
-    // If AI analyzed it, save that metadata separately (simulating DB update)
-    if (analysis) {
-        await db.updateTicketAiMetadata(newTicket.id, analysis.summary, analysis.sentiment);
-    }
+    const newTicket: Ticket = {
+        id: `t-${Date.now()}`,
+        userId: dto.userId,
+        subject: dto.subject,
+        description: dto.description,
+        status: TicketStatus.OPEN,
+        priority: dto.priority || TicketPriority.MEDIUM,
+        category: dto.category || 'Общее',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+    };
 
-    await loadTickets();
-    // Auto select the new ticket
-    const updated = await db.getTicketById(newTicket.id);
-    if (updated) setSelectedTicket(updated);
+    const initialMessage: Message = {
+        id: `m-${Date.now()}`,
+        ticketId: newTicket.id,
+        senderId: dto.userId,
+        content: dto.description,
+        createdAt: new Date().toISOString()
+    };
+
+    setTickets(prev => [newTicket, ...prev]);
+    setMessages(prev => [...prev, initialMessage]);
+    setSelectedTicketId(newTicket.id);
   };
 
   const handleStatusChange = async (newStatus: TicketStatus) => {
-    if (!selectedTicket) return;
-    const updated = await db.updateTicketStatus(selectedTicket.id, newStatus);
-    if (updated) {
-      setSelectedTicket(updated);
-      loadTickets(); // Refresh list to update status indicators
-    }
+    if (!selectedTicketId) return;
+    setTickets(prev => prev.map(t => 
+        t.id === selectedTicketId 
+            ? { ...t, status: newStatus, updatedAt: new Date().toISOString() } 
+            : t
+    ));
   };
 
-  const switchUser = async () => {
+  const handleSendMessage = async (content: string, isInternal: boolean = false) => {
+    if (!selectedTicketId || !currentUser) return;
+
+    const newMessage: Message = {
+        id: `m-${Date.now()}`,
+        ticketId: selectedTicketId,
+        senderId: currentUser.id,
+        content,
+        createdAt: new Date().toISOString(),
+        isInternalNote: isInternal
+    };
+
+    setMessages(prev => [...prev, newMessage]);
+    
+    // Update ticket timestamp
+    setTickets(prev => prev.map(t => 
+        t.id === selectedTicketId 
+            ? { ...t, updatedAt: new Date().toISOString() } 
+            : t
+    ));
+  };
+
+  const switchUser = () => {
     if (!currentUser) return;
-    const users = await db.getAllUsers();
     const nextUser = users.find(u => u.id !== currentUser.id) || users[0];
     setCurrentUser(nextUser);
   };
 
   const filteredTickets = tickets.filter(t => {
+      // Role filter
+      if (currentUser?.role === UserRole.USER && t.userId !== currentUser.id) return false;
+      
+      // Status filter
       if (filterStatus === 'ALL') return true;
       return t.status === filterStatus;
-  });
+  }).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
   if (!currentUser) return <div className="h-screen flex items-center justify-center">Загрузка SocPower...</div>;
 
@@ -91,15 +154,15 @@ const App: React.FC = () => {
         
         <nav className="flex-1 p-4 space-y-2">
           <button 
-            onClick={() => { setSelectedTicket(null); }}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${!selectedTicket ? 'bg-indigo-800 text-white shadow-md' : 'text-indigo-200 hover:bg-indigo-800/50'}`}
+            onClick={() => { setSelectedTicketId(null); }}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${!selectedTicketId ? 'bg-indigo-800 text-white shadow-md' : 'text-indigo-200 hover:bg-indigo-800/50'}`}
           >
             <LayoutDashboard size={20} />
             Дашборд
           </button>
           <div className="pt-4 pb-2 text-xs font-semibold text-indigo-400 uppercase px-4">Рабочая область</div>
            <div className="px-4 py-2 text-indigo-200 text-sm flex items-center gap-2">
-             <TicketIcon size={16}/> Все заявки <span className="ml-auto bg-indigo-800 px-2 py-0.5 rounded text-xs text-white">{tickets.length}</span>
+             <TicketIcon size={16}/> Все заявки <span className="ml-auto bg-indigo-800 px-2 py-0.5 rounded text-xs text-white">{filteredTickets.length}</span>
            </div>
         </nav>
 
@@ -173,15 +236,11 @@ const App: React.FC = () => {
 
             {/* List */}
             <div className="flex-1 overflow-y-auto bg-gray-50 p-2">
-                {isLoading ? (
-                    <div className="text-center p-4 text-gray-500 text-sm">Загрузка заявок...</div>
-                ) : (
-                    <TicketList 
-                        tickets={filteredTickets} 
-                        onSelectTicket={setSelectedTicket}
-                        selectedTicketId={selectedTicket?.id}
-                    />
-                )}
+                <TicketList 
+                    tickets={filteredTickets} 
+                    onSelectTicket={(t) => setSelectedTicketId(t.id)}
+                    selectedTicketId={selectedTicketId || undefined}
+                />
             </div>
           </div>
 
@@ -191,15 +250,17 @@ const App: React.FC = () => {
                 <>
                     {/* Mobile Back Button */}
                     <div className="lg:hidden p-2 bg-white border-b border-gray-200">
-                        <button onClick={() => setSelectedTicket(null)} className="text-indigo-600 text-sm font-medium px-2">
+                        <button onClick={() => setSelectedTicketId(null)} className="text-indigo-600 text-sm font-medium px-2">
                             ← Назад к списку
                         </button>
                     </div>
                     <div className="flex-1 p-4 lg:p-6 overflow-hidden">
                        <TicketDetail 
                             ticket={selectedTicket} 
+                            messages={selectedTicketMessages}
                             currentUser={currentUser}
                             onStatusChange={handleStatusChange}
+                            onSendMessage={handleSendMessage}
                         />
                     </div>
                 </>

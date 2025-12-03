@@ -45,8 +45,6 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string;
   assignedTo?: string; // Support agent ID
-  aiSummary?: string;
-  aiSentiment?: string;
 }
 
 export interface CreateTicketDTO {
