@@ -1,6 +1,6 @@
 import React from 'react';
 import { Ticket, TicketStatus, TicketPriority } from '../types';
-import { Clock, AlertCircle, CheckCircle, MoreHorizontal } from 'lucide-react';
+import { Clock, AlertCircle } from 'lucide-react';
 
 interface TicketListProps {
   tickets: Ticket[];

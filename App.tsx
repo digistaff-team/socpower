@@ -3,132 +3,118 @@ import { Ticket, User, UserRole, TicketStatus, CreateTicketDTO, TicketPriority, 
 import TicketList from './components/TicketList';
 import TicketDetail from './components/TicketDetail';
 import NewTicketModal from './components/NewTicketModal';
-import { LayoutDashboard, Ticket as TicketIcon, LogOut, Plus, Search, Filter } from 'lucide-react';
-
-// Seed Data (moved from mockDatabase)
-const INITIAL_USERS: User[] = [
-  {
-    id: 'u-1',
-    name: 'Алексей Клиент',
-    email: 'alex@example.com',
-    role: UserRole.USER,
-    avatarUrl: 'https://picsum.photos/100/100?random=1'
-  },
-  {
-    id: 'a-1',
-    name: 'Агент поддержки Мария',
-    email: 'support@socpower.ru',
-    role: UserRole.ADMIN,
-    avatarUrl: 'https://picsum.photos/100/100?random=2'
-  }
-];
-
-const INITIAL_TICKETS: Ticket[] = [
-  {
-    id: 't-101',
-    userId: 'u-1',
-    subject: 'Превышен лимит API запросов',
-    description: 'Я постоянно получаю ошибку 429 при использовании эндпоинта авто-лайкинга в Instagram.',
-    status: TicketStatus.OPEN,
-    priority: TicketPriority.HIGH,
-    category: 'API Интеграция',
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-    updatedAt: new Date(Date.now() - 86400000).toISOString()
-  }
-];
-
-const INITIAL_MESSAGES: Message[] = [
-  {
-    id: 'm-1',
-    ticketId: 't-101',
-    senderId: 'u-1',
-    content: 'Я постоянно получаю ошибку 429 при использовании эндпоинта авто-лайкинга. Можете увеличить мои лимиты?',
-    createdAt: new Date(Date.now() - 86400000).toISOString()
-  }
-];
+import { LayoutDashboard, Ticket as TicketIcon, LogOut, Plus, Search, Filter, Loader2 } from 'lucide-react';
+import { apiService } from './services/apiService';
 
 const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   
-  // Internal State
-  const [users] = useState<User[]>(INITIAL_USERS);
-  const [tickets, setTickets] = useState<Ticket[]>(INITIAL_TICKETS);
-  const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+  // State
+  const [users, setUsers] = useState<User[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loadingTickets, setLoadingTickets] = useState(false);
 
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
+  // Load Users
   useEffect(() => {
-    // Simulate auth check
-    setCurrentUser(users[0]);
-  }, [users]);
+    const loadUsers = async () => {
+      try {
+        const data = await apiService.fetchUsers();
+        setUsers(data);
+        if (data.length > 0) setCurrentUser(data[0]);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    loadUsers();
+  }, []);
+
+  // Load Tickets
+  useEffect(() => {
+    const loadTickets = async () => {
+      setLoadingTickets(true);
+      try {
+        // In a real app we might pass filterStatus to API, but for now client side filtering is fine for small datasets
+        // Or pass it: const data = await apiService.fetchTickets(filterStatus);
+        const data = await apiService.fetchTickets(); 
+        setTickets(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingTickets(false);
+      }
+    };
+    loadTickets();
+  }, []); // Reload on interval in real app?
+
+  // Load Messages when ticket selected
+  useEffect(() => {
+    if (!selectedTicketId) {
+        setMessages([]);
+        return;
+    }
+    const loadMessages = async () => {
+        try {
+            const data = await apiService.fetchMessages(selectedTicketId);
+            setMessages(data);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+    loadMessages();
+  }, [selectedTicketId]);
 
   const selectedTicket = tickets.find(t => t.id === selectedTicketId) || null;
-  const selectedTicketMessages = messages.filter(m => m.ticketId === selectedTicketId).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   const handleCreateTicket = async (dto: CreateTicketDTO) => {
     if (!currentUser) return;
-    
-    const newTicket: Ticket = {
-        id: `t-${Date.now()}`,
-        userId: dto.userId,
-        subject: dto.subject,
-        description: dto.description,
-        status: TicketStatus.OPEN,
-        priority: dto.priority || TicketPriority.MEDIUM,
-        category: dto.category || 'Общее',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-    };
-
-    const initialMessage: Message = {
-        id: `m-${Date.now()}`,
-        ticketId: newTicket.id,
-        senderId: dto.userId,
-        content: dto.description,
-        createdAt: new Date().toISOString()
-    };
-
-    setTickets(prev => [newTicket, ...prev]);
-    setMessages(prev => [...prev, initialMessage]);
-    setSelectedTicketId(newTicket.id);
+    try {
+        const newTicket = await apiService.createTicket(dto);
+        setTickets(prev => [newTicket, ...prev]);
+        setSelectedTicketId(newTicket.id);
+    } catch (err) {
+        alert('Ошибка создания тикета');
+    }
   };
 
   const handleStatusChange = async (newStatus: TicketStatus) => {
     if (!selectedTicketId) return;
-    setTickets(prev => prev.map(t => 
-        t.id === selectedTicketId 
-            ? { ...t, status: newStatus, updatedAt: new Date().toISOString() } 
-            : t
-    ));
+    try {
+        await apiService.updateTicketStatus(selectedTicketId, newStatus);
+        setTickets(prev => prev.map(t => 
+            t.id === selectedTicketId 
+                ? { ...t, status: newStatus, updatedAt: new Date().toISOString() } 
+                : t
+        ));
+    } catch (err) {
+        console.error(err);
+    }
   };
 
   const handleSendMessage = async (content: string, isInternal: boolean = false) => {
     if (!selectedTicketId || !currentUser) return;
-
-    const newMessage: Message = {
-        id: `m-${Date.now()}`,
-        ticketId: selectedTicketId,
-        senderId: currentUser.id,
-        content,
-        createdAt: new Date().toISOString(),
-        isInternalNote: isInternal
-    };
-
-    setMessages(prev => [...prev, newMessage]);
-    
-    // Update ticket timestamp
-    setTickets(prev => prev.map(t => 
-        t.id === selectedTicketId 
-            ? { ...t, updatedAt: new Date().toISOString() } 
-            : t
-    ));
+    try {
+        const newMsg = await apiService.sendMessage(selectedTicketId, currentUser.id, content, isInternal);
+        setMessages(prev => [...prev, newMsg]);
+        // Update ticket timestamp locally to bump it to top
+        setTickets(prev => prev.map(t => 
+            t.id === selectedTicketId 
+                ? { ...t, updatedAt: new Date().toISOString() } 
+                : t
+        ));
+    } catch (err) {
+        console.error(err);
+    }
   };
 
   const switchUser = () => {
-    if (!currentUser) return;
-    const nextUser = users.find(u => u.id !== currentUser.id) || users[0];
+    if (!currentUser || users.length === 0) return;
+    const currentIndex = users.findIndex(u => u.id === currentUser.id);
+    const nextUser = users[(currentIndex + 1) % users.length];
     setCurrentUser(nextUser);
   };
 
@@ -141,7 +127,7 @@ const App: React.FC = () => {
       return t.status === filterStatus;
   }).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
-  if (!currentUser) return <div className="h-screen flex items-center justify-center">Загрузка SocPower...</div>;
+  if (!currentUser) return <div className="h-screen flex items-center justify-center flex-col gap-2"><Loader2 className="animate-spin text-indigo-600" /> Загрузка SocPower...</div>;
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
@@ -236,11 +222,15 @@ const App: React.FC = () => {
 
             {/* List */}
             <div className="flex-1 overflow-y-auto bg-gray-50 p-2">
-                <TicketList 
-                    tickets={filteredTickets} 
-                    onSelectTicket={(t) => setSelectedTicketId(t.id)}
-                    selectedTicketId={selectedTicketId || undefined}
-                />
+                {loadingTickets ? (
+                    <div className="flex justify-center p-8 text-gray-400"><Loader2 className="animate-spin" /></div>
+                ) : (
+                    <TicketList 
+                        tickets={filteredTickets} 
+                        onSelectTicket={(t) => setSelectedTicketId(t.id)}
+                        selectedTicketId={selectedTicketId || undefined}
+                    />
+                )}
             </div>
           </div>
 
@@ -257,7 +247,7 @@ const App: React.FC = () => {
                     <div className="flex-1 p-4 lg:p-6 overflow-hidden">
                        <TicketDetail 
                             ticket={selectedTicket} 
-                            messages={selectedTicketMessages}
+                            messages={messages}
                             currentUser={currentUser}
                             onStatusChange={handleStatusChange}
                             onSendMessage={handleSendMessage}
